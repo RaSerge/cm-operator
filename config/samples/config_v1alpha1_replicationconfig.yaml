@@ -1,0 +1,7 @@
+apiVersion: config.scartel.dc/v1alpha1
+kind: ReplicationConfig
+metadata:
+  name: replicationconfig-sample
+spec:
+  # Add fields here
+  foo: bar

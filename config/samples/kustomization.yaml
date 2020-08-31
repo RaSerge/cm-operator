@@ -1,3 +1,4 @@
 ## This file is auto-generated, do not modify ##
 resources:
-- config_v1alpha1_replicationconfig.yaml
+- config_v1alpha1_replicationconfig-1.yaml
+- config_v1alpha1_replicationconfig-2.yaml

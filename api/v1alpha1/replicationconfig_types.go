@@ -29,8 +29,12 @@ type ReplicationConfigSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// TargetName is name of taregt config
+	// +kubebuilder:default=vector-conf
+	// +kubebuilder:validation:MinLength=0
 	TargetName string `json:"targetname"`
 
+	// +kubebuilder:default=cluster-logging
+	// +kubebuilder:validation:MinLength=0
 	// TargetNamespace are target config namespace
 	TargetNamespace string `json:"targetnamespace"`
 

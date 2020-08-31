@@ -1,0 +1,28 @@
+apiVersion: config.scartel.dc/v1alpha1
+kind: ReplicationConfig
+metadata:
+  name: replicationconfig-sample-2
+spec:
+  # Add fields here
+  targetname: vector-test
+  targetnamespace: test-kafka
+  data: 
+    vector-2.toml: |
+      [transforms.k8s_logs_splitter]
+        type = "swimlanes"
+        inputs = ["kubernetes_logs"]
+        [transforms.k8s_logs_splitter.lanes.kube-system_events]
+          type = "check_fields"
+          "namespace_name.eq" = "kube-system"
+
+      [sinks.splunk_hec]
+        type = "splunk_hec"
+        inputs = ["k8s_logs_splitter.kube-system_events"]
+        host = "https://dev-splunk-srch01.scartel.dc:8088" # required
+        token = "72be9941-f5be-407c-8279-939d11a2c170" # required
+        healthcheck = false # optional, default
+        batch.timeout_secs = 1 # seconds
+        batch.max_bytes = 10000
+        encoding = "json"
+        tls.verify_certificate = false
+

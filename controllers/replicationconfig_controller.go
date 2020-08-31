@@ -44,6 +44,9 @@ type ReplicationConfigReconciler struct {
 
 // +kubebuilder:rbac:groups=config.scartel.dc,resources=replicationconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=config.scartel.dc,resources=replicationconfigs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=configs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:namespace=kube-system,groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 
 func (r *ReplicationConfigReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()

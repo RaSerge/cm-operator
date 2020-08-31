@@ -1,0 +1,26 @@
+apiVersion: config.scartel.dc/v1alpha1
+kind: ReplicationConfig
+metadata:
+  name: replicationconfig-sample-1
+spec:
+  # Add fields here
+  targetname: vector-test
+  targetnamespace: test-kafka
+  data: 
+    vector-1.toml: |
+      data_dir = "/vector-data-dir"
+      [log_schema]
+        host_key = "host"
+        message_key = "message"
+        source_type_key = "source_type"
+        timestamp_key = "timestamp"
+      [sources.kubernetes_logs]
+        type = "kubernetes_logs"
+      [sources.internal_metrics]
+        type = "internal_metrics"
+      [sinks.metrics]
+        type = "prometheus"
+        inputs = ["internal_metrics"]
+        address = "0.0.0.0:8888" # required
+        namespace = "vector" # required
+

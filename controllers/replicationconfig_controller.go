@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	configv1alpha1 "github.com/raserge/cm-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -54,28 +53,74 @@ func (r *ReplicationConfigReconciler) Reconcile(req ctrl.Request) (ctrl.Result, 
 
 	// Fetch the App instance.
 	app := &configv1alpha1.ReplicationConfig{}
-	err := r.Get(context.TODO(), req.NamespacedName, app)
+	err := r.Get(ctx, req.NamespacedName, app)
 	if err != nil {
 		if errors.IsNotFound(err) {
+			log.Info("Found CR")
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
 
-	// Check if the deployment already exists, if not create a new deployment.
+	// Check if the config already exists, if not create a new config
 	found := &corev1.ConfigMap{}
+	log.Info("Check if the config already exists, if not create a new config")
 	err = r.Get(ctx, types.NamespacedName{Name: app.Spec.TargetName, Namespace: app.Spec.TargetNamespace}, found)
 	if err != nil {
 		if errors.IsNotFound(err) {
+			log.Info("Config not exists, Try create a new config")
 			// Define and create a new config.
 			cm := r.configForApp(app)
 			if err = r.Create(ctx, cm); err != nil {
+				log.Error(err, "Failed to create Config", "Config.Namespace", found.Namespace, "Config.Name", found.Name)
 				return ctrl.Result{}, err
 			}
-			return ctrl.Result{Requeue: true}, nil
+			// return ctrl.Result{Requeue: true}, nil
+			return ctrl.Result{}, client.IgnoreNotFound(err)
 		} else {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, nil
 		}
+	}
+
+	// name of our custom finalizer
+	myFinalizerName := "config.finalizers.scartel.dc"
+
+	// examine DeletionTimestamp to determine if object is under deletion
+	if app.ObjectMeta.DeletionTimestamp.IsZero() {
+		// The object is not being deleted, so if it does not have our finalizer,
+		// then lets add the finalizer and update the object. This is equivalent
+		// registering our finalizer.
+		if !containsString(app.ObjectMeta.Finalizers, myFinalizerName) {
+			app.ObjectMeta.Finalizers = append(app.ObjectMeta.Finalizers, myFinalizerName)
+			if err := r.Update(ctx, app); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	} else {
+		// The object is being deleted
+		if containsString(app.ObjectMeta.Finalizers, myFinalizerName) {
+			for k := range app.Annotations {
+				keyApp := app.Namespace + app.Name
+				annotationKey := keyApp + k
+				delete(found.Annotations, annotationKey)
+			}
+			for k := range app.Spec.Data {
+				delete(found.Data, k)
+			}
+			err = r.Update(ctx, found)
+			if err != nil {
+				log.Error(err, "Failed to update Config after deleting CR", "Config.Namespace", found.Namespace, "Config.Name", found.Name)
+				return ctrl.Result{}, err
+			}
+
+			// remove our finalizer from the list and update it.
+			app.ObjectMeta.Finalizers = removeString(app.ObjectMeta.Finalizers, myFinalizerName)
+			if err := r.Update(ctx, app); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		// Stop reconciliation as the item is being deleted
+		return ctrl.Result{}, nil
 	}
 
 	// Ensure the data replicated
@@ -85,8 +130,9 @@ func (r *ReplicationConfigReconciler) Reconcile(req ctrl.Request) (ctrl.Result, 
 		annotationKey := keyApp + k
 		sha256b := sha256.Sum256([]byte(v))
 		sha256s := hex.EncodeToString(sha256b[:])
-		if _, ok := found.Annotations[annotationKey]; ok && v == sha256s {
-			return ctrl.Result{Requeue: true}, nil
+		if val, ok := found.Annotations[annotationKey]; ok && val == sha256s {
+			log.Info("Annotations not changed return", "keyv1", val, "keyv2", sha256s)
+			return ctrl.Result{}, nil
 		} else {
 			found.Annotations[annotationKey] = sha256s
 			found.Data[annotationKey] = v
@@ -96,6 +142,7 @@ func (r *ReplicationConfigReconciler) Reconcile(req ctrl.Request) (ctrl.Result, 
 				return ctrl.Result{}, err
 			}
 			// Spec updated - return and requeue
+			log.Info("Annotations changed, config data updated, return and reque", "keyv1", val, "keyv2", sha256s, "key", annotationKey)
 			return ctrl.Result{Requeue: true}, nil
 		}
 
@@ -127,9 +174,9 @@ func (r *ReplicationConfigReconciler) getAppDataKeys(m *configv1alpha1.Replicati
 	return keyNames
 }
 
-func (r *ReplicationConfigReconciler) AnnotationsForConfig(m *configv1alpha1.ReplicationConfig) map[string]string {
+func (r *ReplicationConfigReconciler) SetAnnotationsForConfig(m *configv1alpha1.ReplicationConfig) map[string]string {
 	keyApp := m.Namespace + m.Name
-	var keyValues map[string]string
+	keyValues := make(map[string]string)
 	for k, v := range m.Spec.Data {
 		annotationKey := keyApp + k
 		keyValues[annotationKey] = v
@@ -140,7 +187,8 @@ func (r *ReplicationConfigReconciler) AnnotationsForConfig(m *configv1alpha1.Rep
 // deploymentForApp returns a app Config object.
 func (r *ReplicationConfigReconciler) configForApp(m *configv1alpha1.ReplicationConfig) *corev1.ConfigMap {
 
-	as := r.AnnotationsForConfig(m)
+	as := r.SetAnnotationsForConfig(m)
+	// cmData := make(map[string]string)
 
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -154,6 +202,26 @@ func (r *ReplicationConfigReconciler) configForApp(m *configv1alpha1.Replication
 	// Set App instance as the owner and controller.
 	// NOTE: calling SetControllerReference, and setting owner references in
 	// general, is important as it allows deleted objects to be garbage collected.
-	controllerutil.SetControllerReference(m, cm, r.Scheme)
+	// controllerutil.SetControllerReference(m, cm, r.Scheme)
 	return cm
+}
+
+// Helper functions to check and remove string from a slice of strings.
+func containsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(slice []string, s string) (result []string) {
+	for _, item := range slice {
+		if item == s {
+			continue
+		}
+		result = append(result, item)
+	}
+	return result
 }

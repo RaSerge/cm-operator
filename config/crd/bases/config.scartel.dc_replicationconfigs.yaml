@@ -54,12 +54,10 @@ spec:
                 must not overlap with the keys in the BinaryData field.
               type: object
             targetname:
-              default: vector-conf
               description: TargetName is name of taregt config
               minLength: 0
               type: string
             targetnamespace:
-              default: cluster-logging
               description: TargetNamespace are target config namespace
               minLength: 0
               type: string
